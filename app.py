@@ -217,19 +217,9 @@ Snap & Study
                 )
 
 
-            except Exception:
-
-                st.warning(
-                    "Gemini is temporarily busy. "
-                    "Please wait a moment and try your "
-                    "question again."
-                )
+            except Exception as e:
+    st.error(f"Gemini chat error: {e}")
 
 
-    except Exception:
-
-        st.warning(
-            "Gemini is temporarily busy. "
-            "Please wait a moment and try uploading "
-            "the image again."
-        )
+    except Exception as e:
+    st.error(f"Gemini error: {e}")

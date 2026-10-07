@@ -1,4 +1,4 @@
-
+import time
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -8,10 +8,6 @@ import hashlib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-
-# --------------------------------------------------
-# 1. PAGE SETTINGS
-# --------------------------------------------------
 
 st.set_page_config(
     page_title="Snap & Study",
@@ -27,9 +23,9 @@ st.write(
 )
 
 
-# --------------------------------------------------
-# 2. CONNECT TO GEMINI
-# --------------------------------------------------
+# -----------------------------
+# Gemini Client
+# -----------------------------
 
 try:
     client = genai.Client(
@@ -40,9 +36,9 @@ except Exception as e:
     st.stop()
 
 
-# --------------------------------------------------
-# 3. UPLOAD STUDY IMAGE
-# --------------------------------------------------
+# -----------------------------
+# Image Upload
+# -----------------------------
 
 uploaded_image = st.file_uploader(
     "📸 Upload your study image",
@@ -53,9 +49,9 @@ uploaded_image = st.file_uploader(
 if uploaded_image:
 
     image_bytes = uploaded_image.getvalue()
+
     image_hash = hashlib.md5(image_bytes).hexdigest()
 
-    # Reset the saved explanation when a new image is uploaded
     if st.session_state.get("image_hash") != image_hash:
         st.session_state["image_hash"] = image_hash
         st.session_state["explanation"] = None
@@ -66,62 +62,108 @@ if uploaded_image:
         use_container_width=True
     )
 
-    # --------------------------------------------------
-    # 4. GENERATE AI EXPLANATION
-    # --------------------------------------------------
+
+    # -----------------------------
+    # Main AI Explanation
+    # -----------------------------
 
     if st.session_state.get("explanation") is None:
 
         with st.spinner("🤖 Analyzing your study material..."):
 
-            try:
-                response = client.models.generate_content(
-                    model="gemini-3.5-flash",
-                    contents=[
-                        types.Part.from_bytes(
-                            data=image_bytes,
-                            mime_type=uploaded_image.type
-                        ),
-                        (
-                            "Analyze this study material. "
-                            "Identify the topic and explain it "
-                            "in simple student-friendly language. "
-                            "Organize the answer with headings, "
-                            "important points, and examples where useful."
+            explanation = None
+
+            for attempt in range(3):
+
+                try:
+
+                    response = client.models.generate_content(
+                        model="gemini-3.5-flash",
+
+                        contents=[
+                            types.Part.from_bytes(
+                                data=image_bytes,
+                                mime_type=uploaded_image.type
+                            ),
+
+                            (
+                                "Analyze this study material. "
+                                "Identify the main topic and give "
+                                "EXACTLY 5 important points from the image. "
+                                "Keep every point short and simple. "
+                                "Use numbered points from 1 to 5."
+                            )
+                        ],
+
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT
                         )
-                    ],
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT
                     )
-                )
 
-                if not response.text:
-                    st.error(
-                        "Gemini returned an empty response. "
-                        "Please try another image."
-                    )
-                else:
-                    st.session_state["explanation"] = response.text
+                    if response.text:
 
-            except Exception as e:
-                st.error(f"Gemini error: {e}")
+                        explanation = response.text
+                        break
 
-    # --------------------------------------------------
-    # 5. DISPLAY EXPLANATION
-    # --------------------------------------------------
+                    else:
+
+                        st.warning(
+                            "Gemini returned an empty response. "
+                            "Trying again..."
+                        )
+
+                except Exception as e:
+
+                    error_message = str(e)
+
+                    if "503" in error_message:
+
+                        if attempt < 2:
+
+                            wait_time = 3 * (attempt + 1)
+
+                            st.warning(
+                                f"Gemini is temporarily busy. "
+                                f"Retrying in {wait_time} seconds..."
+                            )
+
+                            time.sleep(wait_time)
+
+                        else:
+
+                            st.error(
+                                "Gemini is currently experiencing "
+                                "high demand. Please try again later."
+                            )
+
+                    else:
+
+                        st.error(
+                            f"Gemini error: {error_message}"
+                        )
+
+            if explanation:
+                st.session_state["explanation"] = explanation
+
+
+    # -----------------------------
+    # Display Explanation
+    # -----------------------------
 
     explanation = st.session_state.get("explanation")
 
     if explanation:
 
         st.subheader("🤖 AI Explanation")
+
         st.markdown(explanation)
 
         st.divider()
 
-        # --------------------------------------------------
-        # 6. SEND EXPLANATION THROUGH EMAIL
-        # --------------------------------------------------
+
+        # -----------------------------
+        # Email
+        # -----------------------------
 
         st.subheader("📧 Send Explanation to Email")
 
@@ -133,13 +175,21 @@ if uploaded_image:
         if st.button("📨 Send Email"):
 
             if not receiver_email.strip():
-                st.warning("Please enter an email address.")
+
+                st.warning(
+                    "Please enter an email address."
+                )
 
             elif "@" not in receiver_email or "." not in receiver_email:
-                st.warning("Please enter a valid email address.")
+
+                st.warning(
+                    "Please enter a valid email address."
+                )
 
             else:
+
                 try:
+
                     message = MIMEMultipart()
 
                     message["From"] = st.secrets["GMAIL_ADDRESS"]
@@ -181,17 +231,20 @@ Snap & Study
                     )
 
                 except Exception:
+
                     st.error(
                         "Unable to send the email. "
                         "Please check your Gmail settings "
                         "and Streamlit secrets."
                     )
 
+
         st.divider()
 
-        # --------------------------------------------------
-        # 7. ASK FOLLOW-UP QUESTIONS
-        # --------------------------------------------------
+
+        # -----------------------------
+        # Follow-up Chat
+        # -----------------------------
 
         st.subheader("💬 Ask About Your Study Material")
 
@@ -204,42 +257,60 @@ Snap & Study
             with st.spinner("🤖 Preparing your answer..."):
 
                 try:
+
                     chat_response = client.models.generate_content(
+
                         model="gemini-3.5-flash",
+
                         contents=[
+
                             types.Part.from_bytes(
                                 data=image_bytes,
                                 mime_type=uploaded_image.type
                             ),
+
                             (
-                                "Here is the explanation already given "
-                                "to the student:\n"
+                                "Here is the explanation already "
+                                "given to the student:\n"
                                 + explanation
                             ),
+
                             (
                                 "Answer this follow-up question "
                                 "clearly and simply:\n"
                                 + question
                             )
                         ],
+
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_PROMPT
                         )
                     )
 
                     if chat_response.text:
+
                         st.write("🤖 **AI Answer**")
-                        st.markdown(chat_response.text)
+
+                        st.markdown(
+                            chat_response.text
+                        )
+
                     else:
+
                         st.warning(
                             "No answer was returned. "
                             "Please try your question again."
                         )
 
                 except Exception as e:
-                    st.error(f"Gemini chat error: {e}")
+
+                    st.error(
+                        f"Gemini chat error: {e}"
+                    )
+
 
 else:
+
     st.info(
         "👆 Upload a study image to get started."
     )
@@ -247,6 +318,7 @@ else:
     st.markdown(
         """
         **You can use Snap & Study to:**
+
         - Understand textbook pages and class notes
         - Explain diagrams and concepts
         - Get answers to follow-up questions

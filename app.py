@@ -217,9 +217,9 @@ Snap & Study
                 )
 
 
-            except Exception as e:
-    		st.error(f"Gemini chat error: {e}")
+  	except Exception as e:
+            st.error(f"Gemini chat error: {e}")
 
 
     except Exception as e:
-    	st.error(f"Gemini error: {e}")
+        st.error(f"Gemini error: {e}")
